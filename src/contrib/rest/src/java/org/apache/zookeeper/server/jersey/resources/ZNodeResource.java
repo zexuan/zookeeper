@@ -140,8 +140,8 @@ public class ZNodeResource {
         if (recursive.equals("true")) {
             isRecursive = true;
         }
-        LOG.error("recursive: " + recursive);
-        LOG.error("view: " + view);
+        LOG.info("recursive: " + recursive);
+        LOG.info("view: " + view);
         return getZNodeList(true, path, callback, view, dataformat, ui, isRecursive);
     }
 
@@ -176,6 +176,7 @@ public class ZNodeResource {
                     childrenRecursive.add(zstat);
                 }
 
+                LOG.info("response: " + new JSONWithPadding(new ZChildrenStat(childrenRecursive), callback));
                 return Response.status(Response.Status.OK).entity(
                     new JSONWithPadding(new ZChildrenStat(childrenRecursive), callback)).build();    
             } else {
