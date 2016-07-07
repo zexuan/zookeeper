@@ -52,8 +52,14 @@ import org.apache.zookeeper.server.jersey.jaxb.ZChildrenJSON;
 import org.apache.zookeeper.server.jersey.jaxb.ZError;
 import org.apache.zookeeper.server.jersey.jaxb.ZPath;
 import org.apache.zookeeper.server.jersey.jaxb.ZStat;
+import org.apache.zookeeper.server.jersey.jaxb.ZChildrenStat;
+
 
 import com.sun.jersey.api.json.JSONWithPadding;
+
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Version 1 implementation of the ZooKeeper REST specification.
@@ -62,6 +68,7 @@ import com.sun.jersey.api.json.JSONWithPadding;
 @Path("znodes/v1{path: /.*}")
 public class ZNodeResource {
     private final ZooKeeper zk;
+    private static Logger LOG = LoggerFactory.getLogger(ZNodeResource.class);               
 
     public ZNodeResource(@DefaultValue("") @QueryParam("session") String session,
             @Context UriInfo ui,
@@ -126,8 +133,16 @@ public class ZNodeResource {
             @QueryParam("callback") String callback,
             @DefaultValue("data") @QueryParam("view") String view,
             @DefaultValue("base64") @QueryParam("dataformat") String dataformat,
+            @DefaultValue("false") @QueryParam("recursive") String recursive,
             @Context UriInfo ui) throws InterruptedException, KeeperException {
-        return getZNodeList(true, path, callback, view, dataformat, ui);
+
+        boolean isRecursive = false;
+        if (recursive.equals("true")) {
+            isRecursive = true;
+        }
+        LOG.error("recursive: " + recursive);
+        LOG.error("view: " + view);
+        return getZNodeList(true, path, callback, view, dataformat, ui, isRecursive);
     }
 
     @GET
@@ -138,11 +153,11 @@ public class ZNodeResource {
             @DefaultValue("data") @QueryParam("view") String view,
             @DefaultValue("base64") @QueryParam("dataformat") String dataformat,
             @Context UriInfo ui) throws InterruptedException, KeeperException {
-        return getZNodeList(false, path, callback, view, dataformat, ui);
+        return getZNodeList(false, path, callback, view, dataformat, ui, false);
     }
 
     private Response getZNodeList(boolean json, String path, String callback,
-            String view, String dataformat, UriInfo ui)
+            String view, String dataformat, UriInfo ui, boolean recursive)
             throws InterruptedException, KeeperException {
         ensurePathNotNull(path);
 
@@ -152,23 +167,48 @@ public class ZNodeResource {
                 children.add(child);
             }
 
-            Object child;
-            String childTemplate = ui.getAbsolutePath().toString();
-            if (!childTemplate.endsWith("/")) {
-                childTemplate += "/";
-            }
-            childTemplate += "{child}";
-            if (json) {
-                child = new ZChildrenJSON(path,
-                        ui.getAbsolutePath().toString(), childTemplate,
-                        children);
+            if(true == recursive) {
+                List<ZStat> childrenRecursive = new ArrayList<ZStat>();
+                String jsonStr = "";
+                for (String child : children) {
+                    String pathForRecursive = path + "/" + child;
+                    ZStat zstat = getZstat(json, pathForRecursive, callback, view, dataformat, ui);
+                    childrenRecursive.add(zstat);
+                }
+
+                return Response.status(Response.Status.OK).entity(
+                    new JSONWithPadding(new ZChildrenStat(childrenRecursive), callback)).build();    
             } else {
-                child = new ZChildren(path, ui.getAbsolutePath().toString(),
-                        childTemplate, children);
+                Object child;
+                String childTemplate = ui.getAbsolutePath().toString();
+                if (!childTemplate.endsWith("/")) {
+                    childTemplate += "/";
+                }
+                childTemplate += "{child}";
+                if (json) {
+                    child = new ZChildrenJSON(path,
+                            ui.getAbsolutePath().toString(), childTemplate,
+                            children);
+                } else {
+                    child = new ZChildren(path, ui.getAbsolutePath().toString(),
+                            childTemplate, children);
+                }
+                return Response.status(Response.Status.OK).entity(
+                        new JSONWithPadding(child, callback)).build();    
             }
-            return Response.status(Response.Status.OK).entity(
-                    new JSONWithPadding(child, callback)).build();
+
+            
         } else {
+           
+            ZStat zstat = getZstat(json, path, callback, view, dataformat, ui);
+            return Response.status(Response.Status.OK).entity(
+                    new JSONWithPadding(zstat, callback)).build();
+        }
+    }
+
+    private ZStat getZstat(boolean json, String path, String callback,
+            String view, String dataformat, UriInfo ui)
+            throws InterruptedException, KeeperException {
             Stat stat = new Stat();
             byte[] data = zk.getData(path, false, stat);
 
@@ -190,10 +230,7 @@ public class ZNodeResource {
                     stat.getCversion(), stat.getAversion(), stat
                             .getEphemeralOwner(), stat.getDataLength(), stat
                             .getNumChildren(), stat.getPzxid());
-
-            return Response.status(Response.Status.OK).entity(
-                    new JSONWithPadding(zstat, callback)).build();
-        }
+            return zstat;
     }
 
     @GET
@@ -410,3 +447,4 @@ public class ZNodeResource {
     }
 
 }
+
